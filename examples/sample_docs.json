@@ -1,0 +1,9 @@
+[
+  {"id": "doc_1", "text": "Paris is the capital of France."},
+  {"id": "doc_2", "text": "Berlin is the capital of Germany."},
+  {"id": "doc_3", "text": "Tokyo is the capital of Japan."},
+  {"id": "doc_4", "text": "Madrid is the capital of Spain."},
+  {"id": "doc_5", "text": "Rome is the capital of Italy."},
+  {"id": "doc_6", "text": "The Eiffel Tower is located in Paris, France."},
+  {"id": "doc_7", "text": "The Colosseum is an ancient amphitheater in Rome, Italy."}
+]
