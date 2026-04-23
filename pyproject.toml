@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-eval-harness"
+version = "0.3.0"
+description = "Modular RAG evaluation platform — multi-service architecture with Claude, retrieval metrics, generation metrics, cost tracking, and failure logging"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["rag", "evaluation", "llm", "retrieval", "claude", "anthropic"]
+
+dependencies = [
+    # API server
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.9",
+
+    # Validation
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+
+    # LLM — Anthropic Claude (primary)
+    "anthropic>=0.28.0",
+
+    # Embeddings + vector search
+    "sentence-transformers>=3.0.0",
+    "faiss-cpu>=1.8.0",
+    "numpy>=1.26.0",
+
+    # Data utilities
+    "datasets>=2.19.0",
+    "pandas>=2.2.0",
+
+    # HTTP + env
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+
+    # CLI + display
+    "rich>=13.7.0",
+    "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+openai   = ["openai>=1.25.0"]
+groq     = ["groq>=0.9.0"]
+qdrant   = ["qdrant-client>=1.9.0"]
+chromadb = ["chromadb>=0.5.0"]
+weaviate = ["weaviate-client>=4.6.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.4.0",
+]
+all = [
+    "openai>=1.25.0",
+    "groq>=0.9.0",
+    "qdrant-client>=1.9.0",
+    "chromadb>=0.5.0",
+    "weaviate-client>=4.6.0",
+]
+
+[project.scripts]
+rag-eval = "rag_eval.cli:app"
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["rag_eval*", "shared*", "services*"]
+
+[tool.ruff]
+line-length    = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths    = ["tests"]

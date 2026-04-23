@@ -1,0 +1,12 @@
+[
+  {
+    "question": "What is the capital of France?",
+    "relevant_doc_ids": ["doc_1", "doc_6"],
+    "ground_truth_answer": "Paris is the capital of France."
+  },
+  {
+    "question": "Where is the Colosseum?",
+    "relevant_doc_ids": ["doc_5", "doc_7"],
+    "ground_truth_answer": "The Colosseum is in Rome, Italy."
+  }
+]
