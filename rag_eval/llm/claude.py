@@ -7,6 +7,10 @@ import os
 import re
 from typing import Any
 
+from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv(usecwd=False), override=True)
+
 
 _DEFAULT_MODEL = "claude-sonnet-4-20250514"
 _DEFAULT_MAX_TOKENS = 1024

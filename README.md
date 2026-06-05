@@ -1,191 +1,161 @@
-# RAG Evaluation Harness
+# rag-eval-harness
 
-A production-grade, multi-service RAG evaluation platform. Evaluate retrieval quality, generation quality (via Claude as LLM judge), hallucination risk, system latency, and cost — all with a pluggable, modular architecture.
+Evaluating RAG pipelines properly is harder than it looks. Retrieval metrics tell you if the right documents came back, but not whether the generated answer was actually faithful to them, or whether the model hallucinated facts that weren't in the context at all. This project handles all of it in one place.
+
+It covers the full evaluation loop — retrieval quality, generation quality using Claude as an automated judge, hallucination detection at the claim level, latency tracking, and cost estimation per run. Works as a Python library, a REST API, or from the CLI.
 
 ---
 
-## Architecture
+## What gets evaluated
 
+**Retrieval**
+- Recall@K, MRR, NDCG@K against ground-truth document annotations
+- Per-query latency with slow query flagging
+
+**Generation** (requires Anthropic API key)
+- Faithfulness — are the answer's claims backed by retrieved context?
+- Answer relevancy — does the answer actually address the question?
+- Context precision and recall
+- Scored by Claude via structured prompts, no fine-tuned model needed
+
+**Hallucination**
+- Decomposes answers into atomic claims
+- Verifies each claim against source documents individually
+- Returns a grounding score and a list of unsupported claims per answer
+
+---
+
+## Setup
+
+```bash
+git clone https://github.com/HamsikaRaj/rag-eval-harness.git
+cd rag-eval-harness
+pip install -e .
+
+# optional backends
+pip install -e ".[all]"   # Qdrant + ChromaDB + Weaviate + OpenAI + Groq
+pip install -e ".[dev]"   # adds pytest + ruff
 ```
-rag-eval-harness/
-├── rag_eval/                      # Core library (stable, reusable)
-│   ├── backends/                  # FAISS · Qdrant · ChromaDB · Weaviate
-│   ├── metrics/                   # Retrieval · Generation · Hallucination
-│   ├── pipeline/                  # RAGEvaluator + EvalDataset
-│   ├── llm/                       # ClaudeLLM wrapper
-│   └── api/                       # Base FastAPI app (/index /search /metrics/*)
-│
-├── shared/                        # Cross-service utilities
-│   ├── schemas/                   # Pydantic models (EvalQuery, EvalResult, FailureLog,
-│   │                              #   CostReport, RunReport)
-│   ├── cost/                      # Token cost estimator (Claude · GPT · Groq · Ollama)
-│   └── logging/                   # Structured failure logger → logs/failures_{run_id}.json
-│
-├── services/
-│   ├── model_runner/              # Pluggable LLM: Anthropic · OpenAI · Groq · Ollama
-│   │                              # Retry (3×, exp backoff) · timeout · token tracking
-│   ├── retrieval_evaluator/       # Recall@K · MRR · NDCG · latency · slow-query flags
-│   ├── generation_evaluator/      # RAGAS-style metrics + per-sample cost tracking
-│   ├── dataset_manager/           # Load (JSON/CSV/HF) · SHA-256 versioning · train/eval split
-│   └── api_gateway/               # Extended FastAPI (full-eval · reports · failures · cost)
-│
-├── tests/                         # Full test suite (all mocked — no API key required)
-├── examples/quickstart.py
-└── .env.example
+
+```bash
+cp .env.example .env
+# set ANTHROPIC_API_KEY in .env for generation metrics
 ```
+
+Retrieval evaluation works without any API key.
 
 ---
 
 ## Quickstart
 
-### Install
-
-```bash
-pip install -e .
-# Full stack (all optional backends):
-pip install -e ".[all,dev]"
-```
-
-### Environment
-
-```bash
-cp .env.example .env
-# Edit .env — set ANTHROPIC_API_KEY for generation metrics
-```
-
-### Run retrieval evaluation (no API key)
-
 ```bash
 python examples/quickstart.py
 ```
 
-### Run full pipeline (requires Claude API key)
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-python examples/quickstart.py
-```
-
-### Start the API Gateway
-
-```bash
-# Uses the full gateway (existing routes + new endpoints)
-uvicorn services.api_gateway.app:create_gateway_app --factory --host 0.0.0.0 --port 8080 --reload
-```
-
-### CLI
-
-```bash
-rag-eval serve                                              # start base API server
-rag-eval eval-retrieval examples/sample_dataset.json examples/sample_docs.json
-rag-eval check-hallucination examples/answers.json         # requires ANTHROPIC_API_KEY
-```
+Runs through retrieval eval, dataset versioning, cost estimation, and a full generation + hallucination eval if a key is set.
 
 ---
 
-## API Endpoints
+## Running as an API
 
-### Base routes (`rag_eval/api`)
+```bash
+uvicorn services.api_gateway.app:create_gateway_app --factory --port 8080 --reload
+```
+
+**Base routes**
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check + Claude availability |
-| POST | `/index` | Embed + index documents into a backend |
-| POST | `/search/{session_id}` | Semantic search |
-| POST | `/metrics/retrieval` | Recall@K, MRR, NDCG from ID lists |
-| POST | `/metrics/hallucination` | Claim-level hallucination detection (requires key) |
+| POST | `/index` | Embed and index documents |
+| POST | `/search/{session_id}` | Semantic search over an indexed session |
+| POST | `/metrics/retrieval` | Compute Recall@K, MRR, NDCG from ID lists |
+| POST | `/metrics/hallucination` | Claim-level hallucination detection |
 | POST | `/evaluate` | Retrieval-only evaluation |
 
-### Gateway routes (`services/api_gateway`)
+**Gateway routes**
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/datasets/load` | Ingest + version a dataset (SHA-256 ID) |
-| GET | `/datasets` | List all versioned datasets |
-| POST | `/run/full-eval` | Run all evaluation layers → returns `run_id` |
-| GET | `/reports/{run_id}` | Full `RunReport` for a completed run |
-| GET | `/failures/{run_id}` | Failure log entries (slow queries, hallucinations, etc.) |
-| GET | `/cost/{run_id}` | Cost breakdown per service |
+| POST | `/datasets/load` | Ingest and version a dataset |
+| GET | `/datasets` | List versioned datasets |
+| POST | `/run/full-eval` | Run full pipeline, returns `run_id` |
+| GET | `/reports/{run_id}` | Full results for a completed run |
+| GET | `/failures/{run_id}` | Failure log entries for a run |
+| GET | `/cost/{run_id}` | Token usage and USD cost breakdown |
 
-### Full eval request example
+**Example request**
 
 ```bash
 curl -X POST http://localhost:8080/run/full-eval \
   -H "Content-Type: application/json" \
   -d '{
-    "samples":   [{"question": "What is Paris?", "relevant_doc_ids": ["d1"]}],
+    "samples": [{"question": "What is Paris?", "relevant_doc_ids": ["d1"]}],
     "documents": [{"id": "d1", "text": "Paris is the capital of France."}],
-    "backend":   "faiss",
-    "top_k":     5,
-    "k_values":  [1, 3, 5],
+    "backend": "faiss",
+    "top_k": 5,
     "run_generation": false
   }'
-# → {"run_id": "a3f2c1b0", "status": "completed", "dataset_id": "..."}
 ```
 
 ---
 
-## Metrics
+## CLI
 
-### Retrieval
-
-| Metric | Description |
-|--------|-------------|
-| `recall@K` | Fraction of relevant docs in top-K results |
-| `mrr` | Mean Reciprocal Rank of first relevant doc |
-| `ndcg@K` | Normalized Discounted Cumulative Gain at K |
-| `latency_ms_mean` | Mean per-query retrieval time |
-| `slow_query_count` | Queries exceeding `SLOW_QUERY_THRESHOLD_MS` (default 500ms) |
-
-### Generation (Claude judge)
-
-| Metric | Description |
-|--------|-------------|
-| `faithfulness` | Fraction of answer claims supported by retrieved context |
-| `answer_relevancy` | How well the answer addresses the question |
-| `context_precision` | Usefulness of retrieved chunks for answering |
-| `context_recall` | Coverage of ground-truth information in context |
-
-### Hallucination
-
-| Metric | Description |
-|--------|-------------|
-| `grounding_score` | Fraction of claims supported by sources |
-| `hallucination_score` | Fraction of claims **not** supported (lower is better) |
+```bash
+rag-eval serve                                   # start the base API server
+rag-eval eval-retrieval dataset.json docs.json   # retrieval eval from files
+rag-eval check-hallucination answers.json        # requires ANTHROPIC_API_KEY
+```
 
 ---
 
-## Model Runner Providers
+## Vector store backends
+
+FAISS is the default and runs in-memory with no server required. Alternatives:
+
+| Backend | Install |
+|---------|---------|
+| FAISS | included |
+| Qdrant | `pip install 'rag-eval-harness[qdrant]'` |
+| ChromaDB | `pip install 'rag-eval-harness[chromadb]'` |
+| Weaviate | `pip install 'rag-eval-harness[weaviate]'` |
+
+Swapping backends is a one-line change — the evaluation logic is completely decoupled.
+
+---
+
+## LLM providers
 
 ```python
 from services.model_runner.runner import ModelRunner
 
-runner = ModelRunner(provider="anthropic")   # default
-runner = ModelRunner(provider="openai")      # pip install 'rag-eval-harness[openai]'
-runner = ModelRunner(provider="groq")        # pip install 'rag-eval-harness[groq]'
-runner = ModelRunner(provider="ollama")      # local, no API key needed
+runner = ModelRunner(provider="anthropic")  # default
+runner = ModelRunner(provider="openai")     # pip install 'rag-eval-harness[openai]'
+runner = ModelRunner(provider="groq")       # pip install 'rag-eval-harness[groq]'
+runner = ModelRunner(provider="ollama")     # local, no API key needed
 ```
 
-Features: **3× retry with exponential backoff**, **30s timeout**, **per-call token + cost tracking**.
+All providers include 3x retry with exponential backoff, 30s timeout, and per-call token + cost tracking.
 
 ---
 
-## Cost Estimation
+## Cost estimation
 
 ```python
 from shared.cost.estimator import estimate_cost
 
-cost = estimate_cost("claude-sonnet-4-20250514", input_tokens=5000, output_tokens=1000)
-# → 0.030000 USD
+estimate_cost("claude-sonnet-4-20250514", input_tokens=5000, output_tokens=1000)
+# → 0.03 USD
 ```
 
-Supported models: Claude Sonnet/Haiku/Opus, GPT-4o/4o-mini, Groq Llama3/Mixtral, Ollama (free).
+Covers Claude (Sonnet/Haiku/Opus), GPT-4o/4o-mini, Groq Llama3/Mixtral, and Ollama (free).
 
 ---
 
-## Failure Logging
+## Failure logging
 
-Every run writes a structured JSON log to `logs/failures_{run_id}.json`:
+Every run writes structured JSON to `logs/failures_{run_id}.json`:
 
 ```json
 {
@@ -200,23 +170,39 @@ Every run writes a structured JSON log to `logs/failures_{run_id}.json`:
 }
 ```
 
+Captures slow queries, zero-relevant retrievals, and faithfulness failures — surfaced per run rather than buried in aggregate numbers.
+
 ---
 
-## Running Tests
+## Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-All 59+ tests run without an API key (LLM calls are mocked).
+147 tests, all passing. LLM calls are mocked so no API key is needed to run the suite.
 
 ---
 
-## Backends
+## Project structure
 
-| Backend | Install | Notes |
-|---------|---------|-------|
-| FAISS | included | In-memory, no server |
-| Qdrant | `pip install 'rag-eval-harness[qdrant]'` | Local or cloud |
-| ChromaDB | `pip install 'rag-eval-harness[chromadb]'` | Ephemeral or persistent |
-| Weaviate | `pip install 'rag-eval-harness[weaviate]'` | Requires Weaviate server |
+```
+rag_eval/
+  backends/      FAISS, Qdrant, ChromaDB, Weaviate
+  metrics/       retrieval, generation, hallucination
+  pipeline/      RAGEvaluator + EvalDataset
+  llm/           Claude wrapper
+  api/           base FastAPI app
+
+services/
+  model_runner/          LLM abstraction (Anthropic, OpenAI, Groq, Ollama)
+  retrieval_evaluator/   per-query retrieval scoring and latency tracking
+  generation_evaluator/  RAGAS-style metrics with cost tracking
+  dataset_manager/       load, version, and split datasets
+  api_gateway/           full orchestration API
+
+shared/
+  schemas/    Pydantic models shared across services
+  cost/       token cost estimator
+  logging/    structured failure logger
+```
